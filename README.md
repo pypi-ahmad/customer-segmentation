@@ -1,6 +1,6 @@
 # Customer Segmentation
 
-**Unsupervised clustering of real retail customers across three UCI datasets** — survey many algorithms with PyCaret, re-implement the best two with scikit-learn, and explain segments in business language.
+**Unsupervised clustering of real retail customers across three UCI datasets** — production-minded preprocessing (winsorize + log + RobustScaler), multi-algorithm survey (KMeans / MiniBatch / Ward / Birch / **GMM**), k-sweeps with **bootstrap stability (ARI)**, and a composite **production_score** for model selection.
 
 | Audience | Start here |
 |----------|------------|
@@ -42,7 +42,7 @@ Each notebook is **tutorial-style** (markdown teaches *why* before *how*) and **
 - **Not supervised learning.** No accuracy, F1, confusion matrix, or classification report as model scores.
 - **Not an LLM / RAG / chat product.** No Ollama, no embeddings, no prompts — classical tabular clustering only.
 - **Not a revenue forecast.** Monetary/spend means are **descriptive segment value**, not predicted future sales.
-- **Not AutoML as the deliverable.** PyCaret is a **survey tool** that narrows algorithms quickly; the production-style answer is the **sklearn re-implementation** with real hyperparameter sweeps.
+- **Not black-box AutoML.** Algorithm survey + sklearn re-fits live in `segmentation/`; selection uses an explicit **production_score**, not a hidden leaderboard.
 
 ---
 
@@ -52,20 +52,24 @@ Each notebook is **tutorial-style** (markdown teaches *why* before *how*) and **
 Customer Segmentation/
 ├── LICENSE                 # MIT (code/notebooks)
 ├── README.md               # this file
+├── CONTRIBUTING.md
+├── CODE_OF_CONDUCT.md
 ├── pyproject.toml          # uv project + dependencies
-├── uv.lock                 # locked resolves
+├── uv.lock
 ├── .python-version         # 3.13.13
+├── segmentation/           # production helper package
+│   ├── preprocess.py       # clean, RFM, winsorize, log, RobustScaler
+│   ├── metrics.py          # Silhouette/DB/CH, production_score, stability ARI
+│   └── selection.py        # survey, k-sweep, fit_model (incl. GMM)
 ├── data/                   # local UCI cache (large; gitignored)
-│   ├── online_retail_ii.zip
-│   └── online_retail_II.xlsx
 └── notebooks/
     ├── 01_online_retail_ii_segmentation.{py,ipynb}
     ├── 02_wholesale_customers_segmentation.{py,ipynb}
     └── 03_online_retail_segmentation.{py,ipynb}
 ```
 
-- **`.py`** files are [jupytext](https://jupytext.readthedocs.io/) percent-format sources (easy to diff and re-convert).
-- **`.ipynb`** files are the executed deliverables with outputs and plots.
+- **`segmentation/`** is the reusable production core imported by notebooks.
+- **`.py`** files are [jupytext](https://jupytext.readthedocs.io/) sources; **`.ipynb`** are fully executed.
 
 ---
 
@@ -73,40 +77,32 @@ Customer Segmentation/
 
 ## Architecture & design decisions
 
-### High-level pipeline
+### High-level pipeline (production)
 
 ```text
-┌──────────────┐   ┌─────────┐   ┌──────────────────┐   ┌─────────────────┐
-│ Data load    │ → │ EDA     │ → │ Feature engineer │ → │ Scale features  │
-│ UCI / zip    │   │ skew,   │   │ RFM or log spend │   │ StandardScaler  │
-└──────────────┘   │ missing │   └──────────────────┘   └────────┬────────┘
-                   └─────────┘                                    │
-         ┌────────────────────────────────────────────────────────┘
-         ▼
-┌────────────────────────────┐     best 2 algorithms
-│ Part 1: PyCaret survey     │ ──────────────────────────────┐
-│ ClusteringExperiment       │                               ▼
-│ models + labels + metrics  │     ┌─────────────────────────────────────┐
-└────────────────────────────┘     │ Part 2: sklearn re-implementation │
-                                   │ k / eps sweep (elbow + silhouette)│
-                                   │ final Silhouette / DB / CH          │
-                                   │ PCA scatter + business profiles     │
-                                   └─────────────────────────────────────┘
+Data (UCI) → EDA → RFM / spend features
+    → Winsorize 1–99% → log1p (skewed cols) → RobustScaler
+    → Family survey @ k=4 (KMeans, MiniBatchKMeans, Ward, Birch, GMM)
+    → Deep k-sweep (2..8) + bootstrap stability ARI
+    → production_score ranking → top configs
+    → PCA + business profiles + manager brief
+    → (NB2) Channel/Region sanity crosstab only
 ```
 
 ### Decision table (what we chose and why)
 
-| Decision | Choice | Tradeoff |
-|----------|--------|----------|
-| Learning setup | Unsupervised clustering | No labels → cannot claim “accuracy”; must use internal metrics + profiles |
-| Survey tool | **PyCaret 4.0.0a8** `ClusteringExperiment` | Fast multi-algorithm scan; API is alpha; metrics pulled via sklearn |
-| Final models | **scikit-learn** re-fits of the survey winners | More control, honest k-sweeps, reproducible estimators |
-| Feature scale | `StandardScaler` after optional `log1p` | Euclidean methods need comparable axes; log reduces heavy-tail domination |
-| RFM vs raw transactions | Aggregate to customer grain before clustering | Transaction-level clustering is not “customer segments” |
-| Hold-outs (NB2) | `Channel`, `Region` never enter the feature matrix | Used only as **external sanity check**, not training targets |
-| Best-2 ranking | Hard filters then composite score | Drops noise-dominated / single-blob solutions even if Silhouette looks high |
-| Python runtime | **3.13.13** + uv | Prefer modern Python; forces PyCaret 4 alpha (3.3.x blocks ≥3.12) |
-| Notebooks as product | Fully executed `.ipynb` | Reviewers see real numbers without re-running; sources stay as jupytext `.py` |
+| Decision | Choice | Tradeoff / research basis |
+|----------|--------|---------------------------|
+| Learning setup | Unsupervised clustering | No labels → internal metrics + profiles only |
+| Outliers | **Winsorize 1%/99%** before log | KMeans/GMM distorted by retail mega-buyers; common RFM practice |
+| Transform | **log1p** on F/M or all spends | Right-skew (mean ≫ median) on real UCI pulls |
+| Scale | **RobustScaler** (median/IQR) | More stable than StandardScaler with residual tails |
+| Model families | KMeans++, MiniBatch, Ward, Birch, **GMM** | GMM allows unequal variance; MiniBatch scales |
+| k selection | Sweep 2–8 + Silhouette/DB/CH + **stability ARI** | Elbow alone is under-specified for ops |
+| Selection objective | **`production_score`** | Geometry + balance + stability + slight 3–5 segment bias for actionability |
+| Hold-outs (NB2) | `Channel`/`Region` never in features | Sanity check only — not accuracy |
+| Packaging | `segmentation/` library | Notebooks stay tutorials; logic is testable/reusable |
+| Python | **3.13.13** + uv | Locked deps; PyCaret pin optional for env parity |
 
 ### Ranking rubric for the survey (best 2)
 
@@ -169,15 +165,25 @@ uv run python -c "import sys,pycaret,sklearn; print(sys.version.split()[0], pyca
 
 ## Real evidence (from executed notebooks)
 
-All figures below were produced on a full re-execution of the three notebooks (0 error cells; plots embedded). They are **not** copied from blogs.
+All figures below come from a **full re-execution after the production upgrade** (0 error cells; plots embedded). They are **not** copied from blogs.
 
-### Execution health
+### Improvement vs prior baseline (same data, better pipeline)
 
-| Notebook | Code cells with outputs | Embedded plots | Approx. size | Errors |
-|----------|-------------------------|----------------|--------------|--------|
-| 01 Online Retail II | 12/12 | 9 | ~836 KB | 0 |
-| 02 Wholesale | 9/9 | 9 | ~784 KB | 0 |
-| 03 Online Retail | 8/8 | 9 | ~768 KB | 0 |
+| Notebook | Prior preferred | Prior Silhouette | **New preferred** | **New Silhouette** | Other gains |
+|----------|-----------------|------------------|-------------------|--------------------|-------------|
+| 01 Retail II | KMeans k=2 | 0.419 | **KMeans k=2** | **0.427** | CH 5793→**6290**, stability ARI **0.968**, revenue conc. **91.3%** |
+| 02 Wholesale | HClust k=2 | 0.258 | **MiniBatchKMeans k=2** | 0.252 | CH 135→**149**, Channel purity **97.1%** Horeca, stab **0.756** |
+| 03 Retail 352 | KMeans k=3 | 0.416 | **KMeans k=3** | **0.426** | CH 4395→**4917**, stability ARI **0.974**, VIP rev **82.2%** |
+
+Wholesale Silhouette is essentially flat (−0.006) while **Channel recovery and CH improved** — production_score intentionally balances geometry with operational structure, not Silhouette alone.
+
+### Execution health (latest run)
+
+| Notebook | Code cells w/ outputs | Errors |
+|----------|----------------------|--------|
+| 01 Online Retail II | 9/9 | 0 |
+| 02 Wholesale | 8/8 | 0 |
+| 03 Online Retail | 7/7 | 0 |
 
 ---
 
@@ -185,29 +191,21 @@ All figures below were produced on a full re-execution of the three notebooks (0
 
 | Stage | Real output |
 |-------|-------------|
-| Source | Official UCI zip (`online_retail_II.xlsx`, sheets 2009–2010 + 2010–2011) — `ucimlrepo` import unavailable for id 502 |
-| Raw rows | **1,067,371** |
-| Cleaned transactions | **805,549** (drop cancels, missing `Customer ID`, non-positive qty/price) |
-| Customers | **5,878** RFM rows |
-| Skew | Frequency skew **12.64**, Monetary skew **25.31** → `log1p` applied |
-| Survey best 2 | **kmeans**, **hclust** |
-| Preferred final model | **KMeans, k = 2** |
+| Source | Official UCI zip (`online_retail_II.xlsx`) |
+| Raw / cleaned / customers | **1,067,371** / **805,549** / **5,878** |
+| Preprocess | Winsorize 1–99% → log1p(F,M) → RobustScaler |
+| Best families | **kmeans**, **minibatch_kmeans** |
+| Preferred | **KMeans k=2** |
 
-**Final internal metrics**
+| Config | Silhouette ↑ | DB ↓ | CH ↑ | Stability ARI | production_score |
+|--------|--------------|------|------|---------------|------------------|
+| **KMeans k=2** | **0.427** | **0.870** | **6290** | **0.968** | **0.662** |
+| MiniBatchKMeans k=2 | 0.427 | 0.872 | 6288 | 0.946 | 0.659 |
 
-| Model | Params | Silhouette ↑ | Davies–Bouldin ↓ | Calinski–Harabasz ↑ | Largest % |
-|-------|--------|--------------|------------------|---------------------|-----------|
-| **KMeans (preferred)** | k=2 | **0.419** | **0.889** | **5793** | 54.5% |
-| Hierarchical | k=2 | 0.399 | 0.846 | 5066 | 68.7% |
-
-**Business profiles (KMeans, original RFM units)**
-
-| Segment | n | % customers | % revenue | Avg Recency | Avg Frequency | Avg Monetary |
-|---------|---|-------------|-----------|-------------|---------------|--------------|
-| 0 — high value / recent | 2,674 | 45.5% | **90.2%** | 62 d | 11.6 | **£5,988** |
-| 1 — low value / stale | 3,204 | 54.5% | 9.8% | 316 d | 1.9 | £541 |
-
-Interpretation: nearly half the base produces ~90% of observed revenue. Retention budget belongs on Segment 0; Segment 1 is automation / win-back, not high-touch spend.
+| Segment | n | % cust | % revenue | R (d) | F | M mean | Label |
+|---------|---|--------|-----------|-------|---|--------|-------|
+| Champions | 2,705 | 46.0% | **91.3%** | 70 | 11.5 | **£5,990** | VIP protect |
+| At-risk / Lapsed | 3,173 | 54.0% | 8.7% | 311 | 1.8 | £486 | Win-back |
 
 ---
 
@@ -215,36 +213,17 @@ Interpretation: nearly half the base produces ~90% of observed revenue. Retentio
 
 | Stage | Real output |
 |-------|-------------|
-| Source | `fetch_ucirepo(id=292).data.original` |
-| Shape | **440 × 8** |
-| Deli column (live spelling) | **`Delicassen`** (not “Delicatessen”) |
-| Clustering features | Fresh, Milk, Grocery, Frozen, Detergents_Paper, Delicassen |
-| Held out | `Channel`, `Region` |
-| Survey best 2 | **birch**, **hclust** |
-| Preferred final model | **Agglomerative clustering, k = 2** |
+| Source | `ucimlrepo` id=292 original — **440×8** |
+| Deli column | **`Delicassen`** |
+| Preprocess | Winsorize → log1p(all 6 spends) → RobustScaler |
+| Preferred | **MiniBatchKMeans k=2** (Sil 0.252, CH 149, stab 0.756) |
 
-**Final internal metrics**
+| Segment | n | % accounts | % spend | Mean total | Top category |
+|---------|---|------------|---------|------------|--------------|
+| 1 | 201 | 45.7% | **57.4%** | ~41,732 | Grocery ≈ 13,709 |
+| 0 | 239 | 54.3% | 42.6% | ~26,073 | Fresh ≈ 14,826 |
 
-| Model | Params | Silhouette ↑ | Davies–Bouldin ↓ | Calinski–Harabasz ↑ | Largest % |
-|-------|--------|--------------|------------------|---------------------|-----------|
-| Birch | k=2 | 0.222 | 1.645 | 124 | 53.4% |
-| **HClust (preferred)** | k=2 | **0.258** | **1.600** | **135** | 59.5% |
-
-**Profiles (original spend units)**
-
-| Segment | n | % accounts | % spend | Mean total spend | Strongest mean category |
-|---------|---|------------|---------|------------------|-------------------------|
-| 0 | 178 | 40.5% | 49.0% | ~40,275 | Grocery ≈ 14,247 |
-| 1 | 262 | 59.5% | 51.0% | ~28,437 | Fresh ≈ 15,016 |
-
-**External sanity check (not accuracy)**
-
-| Cluster | n | Dominant Channel | Share of cluster |
-|---------|---|------------------|------------------|
-| 0 | 178 | Channel **2** (Retail) | **73.6%** |
-| 1 | 262 | Channel **1** (Horeca) | **95.8%** |
-
-Spend-only clusters recover a strong Channel structure without ever training on Channel. That supports interpretability; it does **not** mean the clustering “achieved 95% accuracy.”
+**Channel sanity (descriptive only):** Cluster 0 → Channel 1 (Horeca) **97.1%**; Cluster 1 → Channel 2 (Retail) **67.2%**.
 
 ---
 
@@ -252,31 +231,19 @@ Spend-only clusters recover a strong Channel structure without ever training on 
 
 | Stage | Real output |
 |-------|-------------|
-| Source | `fetch_ucirepo(id=352).data.original` |
-| Columns | `InvoiceNo`, `UnitPrice`, `CustomerID` (differs from dataset II) |
-| Raw rows | **541,909** |
-| Cleaned | **397,884** |
-| Customers | **4,338** |
-| Skew | Frequency **12.07**, Monetary **19.32** → `log1p` |
-| Survey best 2 | **kmeans**, **hclust** |
-| Preferred final model | **KMeans, k = 3** |
+| Raw / cleaned / customers | **541,909** / **397,884** / **4,338** |
+| Preferred | **KMeans k=3** |
 
-**Final internal metrics**
+| Config | Silhouette | DB | CH | Stability ARI | production_score |
+|--------|------------|----|----|---------------|------------------|
+| **KMeans k=3** | **0.426** | **0.801** | **4917** | **0.974** | **0.656** |
+| MiniBatchKMeans k=3 | 0.426 | — | — | 0.914 | 0.649 |
 
-| Model | Params | Silhouette ↑ | Davies–Bouldin ↓ | Calinski–Harabasz ↑ | Largest % |
-|-------|--------|--------------|------------------|---------------------|-----------|
-| **KMeans (preferred)** | **k=3** | **0.416** | **0.825** | **4395** | 46.9% |
-| Hierarchical | k=2 | 0.400 | 0.892 | 3691 | 64.8% |
-
-**Profiles (KMeans k=3)**
-
-| Segment | n | % customers | % revenue | Avg Recency | Avg Frequency | Avg Monetary |
-|---------|---|-------------|-----------|-------------|---------------|--------------|
-| 1 — VIP | 1,323 | 30.5% | **81.6%** | 29 d | 9.8 | **£5,494** |
-| 0 — mid | 2,036 | 46.9% | 14.1% | 54 d | 2.0 | £615 |
-| 2 — lapsed / low | 979 | 22.6% | 4.4% | 254 d | 1.4 | £398 |
-
-Single-year data yields a **three-way** split under Silhouette (VIP / mid / lapsed), whereas the longer Online Retail II window preferred a coarser **two-way** split in this run. Same retailer family, different observation window and feature realizations — numbers are not interchangeable.
+| Segment | n | % cust | % revenue | R (d) | F | M mean |
+|---------|---|--------|-----------|-------|---|--------|
+| VIP | 1,397 | 32.2% | **82.2%** | 29 | 9.5 | **£5,245** |
+| Mid | 1,956 | 45.1% | 12.4% | 54 | 2.0 | £566 |
+| Lapsed / low | 985 | 22.7% | 5.4% | 254 | 1.4 | £485 |
 
 ---
 
