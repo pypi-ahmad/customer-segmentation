@@ -345,54 +345,110 @@ Channel sanity (v2, descriptive only): Cluster 0 → Channel **1** (Horeca) **97
 
 ## Advanced track (notebooks 04–06) — kept separate from 01–03
 
-Older notebooks **were not edited**. Advanced work lives in new modules + new notebooks so learners can still run the classic path first.
+> **Important:** Notebooks **01–03 and their v1/v2 results above are still the baseline story.**  
+> Advanced work is **new code + new notebooks only** so you can learn the classic path first, then level up.
 
 Full conceptual guide: **[docs/ADVANCED_SEGMENTATION_TUTORIAL.md](docs/ADVANCED_SEGMENTATION_TUTORIAL.md)**.
 
-### What we added (and why)
+### What changed in the advanced track (without removing anything)
 
-| Upgrade | Where | Why it makes results “more awesome” |
-|---------|--------|-------------------------------------|
-| **RFM+ features** (tenure, AOV, inter-purchase, cancel rate, 90d trends) | 04 + `features_plus.py` | Same R/F/M can hide opposite trajectories; extra axes separate real behaviors |
-| **Whale split** (top 1% Monetary) | 04 + `whales.py` | Key accounts get a policy segment; they stop owning every centroid |
-| **Time holdout** (features ≤ cutoff; outcomes next 90d) | 05 + `temporal.py` | Silhouette ≠ revenue; future £ / retention is the commercial test |
-| **Hybrid CLV / retention proxies** | 05 + `hybrid.py` | Rank *inside* clusters for targeting without fake segment accuracy |
-| **Soft GMM membership** | 06 + `soft_hierarchical.py` | Confidence / partial VIP membership for ops |
-| **Hierarchical VIP → core** | 06 | Budget like a real CRM org (protect top 15%, sub-segment the rest) |
-| **Rolling as-of stability** | 06 + `stability_time.py` | Detect segment drift across months |
-| **Scoring API + playbooks + A/B design** | 06 + `scoring.py` | Deployable loop: features → segment → action → metric |
+| Change | Status of 01–03 | New location |
+|--------|-----------------|--------------|
+| RFM+ behavioral features | Untouched | `segmentation/advanced/features_plus.py` + **NB04** |
+| Whale (top 1% value) policy segment | Untouched | `whales.py` + **NB04** |
+| Future 90d holdout evaluation | Not in baseline | `temporal.py` + **NB05** |
+| Hybrid CLV / retention ranking | Not in baseline | `hybrid.py` + **NB05** |
+| Soft GMM + hierarchical VIP→core | Not in baseline | `soft_hierarchical.py` + **NB06** |
+| Rolling time stability | Bootstrap only in v2 | `stability_time.py` + **NB06** |
+| Scoring API + playbooks + A/B table | Manager paragraph only | `scoring.py` + **NB06** + `artifacts/` |
+
+### Why we added these (problem → fix → expected improvement)
+
+| Business / ML problem | Advanced fix | What “better” means |
+|----------------------|--------------|---------------------|
+| Same R/F/M hides opposite behaviors (growing vs dying) | **RFM+** (trend, tenure, cancels, AOV, gaps) | Higher Silhouette on core; richer segment stories |
+| Mega-buyers distort every centroid | **Whale split** before clustering | Core clusters describe normal base; whales get AM playbook |
+| Silhouette ≠ “will they buy next quarter?” | **Time holdout** future £ / retention | Commercial proof of segment quality |
+| One hard cluster id is too coarse for offers | **Hybrid** cluster + predicted value band | Finer targeting; wider retention gap |
+| Budgets are hierarchical (VIP program vs mass) | **Top 15% VIP rule** + KMeans on rest | Ops-aligned structure (873 VIP / 4,946 core) |
+| Segments drift as months pass | **Rolling as-of ARI** | Know when to re-fit (mean ARI ~0.20 here) |
+| Notebooks are not a CRM | **`SegmentScorer` + playbooks + A/B CSV** | features → segment → action → metric |
+
+### Cross-generation comparison (Retail II family, where all three generations apply)
+
+Numbers are from executed notebooks on the **same UCI Online Retail II** customers (~5.9k).
+
+| Question | v1 (01 first run) | v2 (01 production) | v3 advanced (04–06) | Interpretation |
+|----------|-------------------|--------------------|---------------------|----------------|
+| In-sample Silhouette (typical preferred) | 0.419 (full RFM) | **0.427** (full RFM, robust) | **0.507** (RFM+ on **core**, whales out) | Advanced **geometry** is best once whales are held out |
+| Stability | not measured | Bootstrap ARI **0.968** | Rolling time ARI **~0.20** | Short-run self-consistency is high; **long-run labels drift** |
+| Future 90d value separation | not measured | not measured | Classic RFM ratio **7.9**; RFM+ **3.9** | **Future lift ≠ Silhouette** — measure both |
+| Future retention model | — | — | AUC **0.82** | Predictive ranking is usable |
+| Hybrid retention gap | — | — | **0.65** | Hybrid beats pure clusters on retention spread |
+| Whale handling | winsorize only | winsorize only | **59 whales = 31.9% lifetime £** | Explicit policy segment is mandatory in production |
+| Deployable scoring | no | no | **Yes** (`artifacts/sample_scores.csv`) | Production story completes |
 
 ### Real outputs from advanced notebooks (executed)
 
 #### Notebook 04 — RFM+ vs baseline RFM on **core** (whales held out)
 
-| Pipeline | k | Silhouette | CH | Notes |
-|----------|---|------------|-----|--------|
-| Baseline RFM (3 features) | 2 | 0.428 | 6288 | Same spirit as NB01 geometry |
-| **RFM+ (15 features)** | 2 | **0.507** | 1713 | **+0.08 Silhouette** vs 3-feature baseline on core |
-| Whales (rule) | — | — | — | **n=59 (1%)**, **31.9%** of lifetime Monetary, threshold £29,730 |
+| Pipeline | k | Silhouette ↑ | CH | What this shows |
+|----------|---|--------------|-----|-----------------|
+| Baseline RFM (3 features) on core | 2 | 0.428 | 6288 | Aligns with v2 NB01-scale geometry on non-whales |
+| **RFM+ (~15 features) on core** | 2 | **0.507** | 1713 | **+0.079 Silhouette** vs 3-feature baseline on same core |
+| Whales (rule, not clustered) | — | n/a | n/a | **n=59 (1.0%)**, threshold **£29,730**, **31.9%** of lifetime Monetary |
 
-**Why Silhouette jumped:** richer, winsorized/scaled RFM+ geometry on the non-whale base forms tighter relative groups than 3D RFM alone.
+**Explanation — why Silhouette improved here:**  
+Removing the top 1% and adding behavioral axes changes the distance geometry. Clusters no longer stretch to fit mega-buyers, and features like **90-day trend / cancel rate / inter-purchase gap** separate “steady” vs “spiky” histories that looked identical in 3D RFM.
+
+**Explanation — why CH is lower for RFM+:**  
+Calinski–Harabasz prefers compact spherical separation in the scaled space; higher-dimensional RFM+ can raise Silhouette while lowering CH. That is another reason we never rely on a single internal metric.
 
 #### Notebook 05 — future 90-day holdout (no leakage)
 
-| Pipeline (history only) | Silhouette @ cutoff | Future £ max/min ratio | Top segment share of future £ | Retention gap |
-|-------------------------|---------------------|------------------------|-------------------------------|---------------|
-| Baseline RFM | 0.411 | **7.89** | **86.5%** | 0.378 |
-| RFM+ | **0.449** | 3.90 | 34.2% | 0.363 |
+**Setup:** cutoff ≈ 75% of the time span; features use only history ≤ cutoff; outcomes use the next **90 days**.
 
-**Honest reading:** RFM+ won **in-sample geometry** at the cutoff, while classic RFM’s coarse k=2 cut still concentrated **future** revenue more extremely in this window. That is why we measure **both** — awesome production systems optimize for **future lift**, not only Silhouette.
+| Pipeline (history only) | Silhouette @ cutoff | Largest cluster % | Future £ max/min | Top segment % of future £ | Retention gap |
+|-------------------------|---------------------|-------------------|------------------|---------------------------|---------------|
+| Baseline RFM | 0.411 | **55%** | **7.89** | **86.5%** | 0.378 |
+| RFM+ | **0.449** | 88% | 3.90 | 34.2% | 0.363 |
 
-**Supervised proxies (holdout):** future-monetary **R² ≈ 0.39**, retention **AUC ≈ 0.82** — strong enough to build hybrid `cluster|value_band` cells. Hybrid **retention gap ≈ 0.65** (wider than pure clusters).
+**Explanation — how to compare without fooling yourself:**
 
-#### Notebook 06 — soft / hierarchy / stability / scoring
+1. **RFM+ is better at in-history geometry** (higher Silhouette).  
+2. **Classic RFM’s balanced k=2 cut** in this window still produced a **more extreme future-revenue concentration** (one segment ~86% of next-90d £). RFM+’s k=2 solution was **imbalanced (88% in one cluster)**, which hurts multi-segment marketing even if Silhouette is higher.  
+3. Therefore advanced work does **not** claim “RFM+ always wins future lift”; it claims “we can **measure** future lift and catch bad operational cuts.”
 
-| Piece | Real output |
-|-------|-------------|
-| Soft GMM | 4 components; confidence histogram in notebook |
-| Hierarchy | **VIP n=873 (~15%)**, rest **4,946** split into 3 cores |
-| Rolling stability | Mean consecutive ARI ≈ **0.20** (segments **do** drift — monitoring is required) |
-| Artifacts | `artifacts/sample_scores.csv`, `artifacts/ab_experiment_design.csv` |
+**Hybrid layer (same notebook):**
+
+| Proxy / hybrid metric | Value | Meaning |
+|-----------------------|-------|---------|
+| Holdout R² (future monetary) | **0.393** | Weak–moderate ranking of next-period spend |
+| Holdout AUC (retention) | **0.822** | Strong ranking of who returns |
+| Hybrid retention gap | **0.652** | Wider than pure unsupervised retention gaps (~0.37) |
+
+**Explanation:** Unsupervised clusters group similar *histories*; the hybrid `cluster|Vband` uses a retention/CLV proxy to **rank inside** those groups. That is how CRM teams get finer cells without inventing a fake “segment accuracy.”
+
+#### Notebook 06 — soft membership, hierarchy, stability, scoring
+
+| Piece | Real output | Explanation |
+|-------|-------------|-------------|
+| Soft GMM (k=4) | Max-probability confidence distribution in notebook | Ops can require e.g. conf ≥ 0.6 before VIP treatment |
+| Hierarchy | **VIP n=873 (~15%)**, rest **4,946** → 3 cores | VIP = top **15%** monetary policy cut, then KMeans on the rest (budget-shaped) |
+| Rolling stability | Mean consecutive ARI ≈ **0.196** | Segment *ids* drift over months — re-fit + remap names in production |
+| Scoring API | `SegmentScorer.predict` | New customers → segment + confidence + recommended action |
+| Artifacts | `artifacts/sample_scores.csv`, `artifacts/ab_experiment_design.csv` | Full scored base + A/B hypotheses per playbook |
+
+### How advanced compares to baseline overall
+
+| Goal | Best generation in this repo | Evidence |
+|------|------------------------------|----------|
+| Teach classic unsupervised RFM | **v1 / notebooks 01–03** | Full EDA → survey → profiles narrative |
+| Best robust RFM on full base (no advanced features) | **v2 notebook 01** | Sil 0.427, stab 0.968, Champions 91.3% revenue |
+| Best in-sample geometry on non-whale base | **v3 notebook 04 RFM+** | Sil **0.507** |
+| Commercial future-value proof | **v3 notebook 05** | Future £ / retention tables + hybrid AUC 0.82 |
+| Ops hierarchy + scoring delivery | **v3 notebook 06** | VIP 15% + scorer + playbooks |
+| Wholesale spend segmentation | **v2 notebook 02** | Still the dedicated wholesale notebook (advanced track is Retail II–centric) |
 
 ### How to run advanced only
 
@@ -682,4 +738,4 @@ Project **source code and notebooks**: [MIT License](LICENSE) © 2026 Ahmad.
 
 ## Summary for reviewers in one paragraph
 
-This portfolio project demonstrates an end-to-end unsupervised segmentation practice: real multi-source UCI data, leakage-aware feature design (RFM / log spend; Channel held out), a reproducible `uv`+Python 3.13 environment, a deliberate **PyCaret survey → sklearn re-implementation** architecture, hard quality filters against degenerate clusters, fully executed notebooks with embedded plots, and **honest reporting** of internal metrics plus business profiles without inventing classification accuracy. The strongest real finding across retail notebooks is classic power-law value concentration (≈30–45% of customers drive ≈80–90% of observed revenue), which is exactly the kind of structure segmentation is meant to surface for retention and budget allocation.
+This portfolio project demonstrates end-to-end unsupervised segmentation on real UCI data, with **results preserved across three generations**: (1) classic RFM notebooks, (2) production-hardened 01–03 (winsorize, RobustScaler, stability, `production_score`), and (3) an **additive advanced track** (04–06) that keeps 01–03 intact while adding RFM+, whale policy segments, **time-based future £/retention evaluation**, hybrid CLV ranking, soft/hierarchical structure, drift monitoring, and a scoring API with playbooks. Evidence is executed—not blog-copied—including retail Silhouette gains (v2 full-base 0.427; advanced core RFM+ **0.507**), honest cases where future concentration favors simpler RFM, retention proxy **AUC ≈ 0.82**, and rolling ARI ≈ 0.20 showing why production must re-fit. No fake segment accuracy is claimed; Channel on wholesale remains a sanity check only.
