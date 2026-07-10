@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+data/*.csv
+data/*.xlsx
+.DS_Store
+
+logs.log
+**/logs.log
+
+# Large UCI caches (downloadable)
+data/*.zip
+data/*.xlsx
+data/*.xls
+logs.log
+**/logs.log
