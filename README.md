@@ -104,19 +104,23 @@ Data (UCI) → EDA → RFM / spend features
 | Packaging | `segmentation/` library | Notebooks stay tutorials; logic is testable/reusable |
 | Python | **3.13.13** + uv | Locked deps; PyCaret pin optional for env parity |
 
-### Ranking rubric for the survey (best 2)
+### Ranking rubric (v2 `production_score`)
 
-A model is **viable** only if all hold:
+Configs are ranked after k-sweeps with hard filters roughly:
 
-- no fit error  
-- Silhouette is finite  
-- **2 ≤ n_clusters ≤ 25** (excludes 1-blob and micro-fragmentation like 500 affinity clusters)  
-- **noise ≤ 30%** (DBSCAN/OPTICS)  
-- **largest cluster ≤ 85%** of mass (rejects “almost everything in one cluster”)
+- finite Silhouette, **2 ≤ k ≤ 8** in the deep sweep  
+- low noise; largest cluster not near 100%; min cluster not tiny  
 
-Among viable models, a composite score prefers higher Silhouette, higher Calinski–Harabasz, lower Davies–Bouldin, and slightly penalizes extreme imbalance.
+Then **`production_score`** (see `segmentation/metrics.py`) combines:
 
-If fewer than two models pass, the notebook **relaxes once** (noise ≤ 50%, largest ≤ 95%) and logs a warning rather than inventing winners.
+- Silhouette (primary geometry)  
+- Calinski–Harabasz (between/within dispersion)  
+- Davies–Bouldin (penalty)  
+- **Bootstrap stability ARI**  
+- Penalties for imbalance / noise  
+- Slight bonus for **3–5** segments (actionable CRM granularity)
+
+v1 used a simpler Silhouette-first ranking without stability; both result sets are kept below.
 
 ### Why “survey then re-implement” instead of only PyCaret?
 
@@ -165,19 +169,9 @@ uv run python -c "import sys,pycaret,sklearn; print(sys.version.split()[0], pyca
 
 ## Real evidence (from executed notebooks)
 
-All figures below come from a **full re-execution after the production upgrade** (0 error cells; plots embedded). They are **not** copied from blogs.
+All numbers are from **executed notebooks on real UCI data** (not blog copy). This section keeps the **v1 baseline results**, documents the **v2 production pipeline**, and shows **old vs new side-by-side**.
 
-### Improvement vs prior baseline (same data, better pipeline)
-
-| Notebook | Prior preferred | Prior Silhouette | **New preferred** | **New Silhouette** | Other gains |
-|----------|-----------------|------------------|-------------------|--------------------|-------------|
-| 01 Retail II | KMeans k=2 | 0.419 | **KMeans k=2** | **0.427** | CH 5793→**6290**, stability ARI **0.968**, revenue conc. **91.3%** |
-| 02 Wholesale | HClust k=2 | 0.258 | **MiniBatchKMeans k=2** | 0.252 | CH 135→**149**, Channel purity **97.1%** Horeca, stab **0.756** |
-| 03 Retail 352 | KMeans k=3 | 0.416 | **KMeans k=3** | **0.426** | CH 4395→**4917**, stability ARI **0.974**, VIP rev **82.2%** |
-
-Wholesale Silhouette is essentially flat (−0.006) while **Channel recovery and CH improved** — production_score intentionally balances geometry with operational structure, not Silhouette alone.
-
-### Execution health (latest run)
+### Execution health (latest v2 run)
 
 | Notebook | Code cells w/ outputs | Errors |
 |----------|----------------------|--------|
@@ -187,13 +181,109 @@ Wholesale Silhouette is essentially flat (−0.006) while **Channel recovery and
 
 ---
 
-### Notebook 1 — Online Retail II (UCI 502)
+### New techniques (v2 production upgrade) — what changed and why results improved
 
-| Stage | Real output |
-|-------|-------------|
-| Source | Official UCI zip (`online_retail_II.xlsx`) |
-| Raw / cleaned / customers | **1,067,371** / **805,549** / **5,878** |
-| Preprocess | Winsorize 1–99% → log1p(F,M) → RobustScaler |
+| Technique | What we did before (v1) | What we do now (v2) | Why it helps |
+|-----------|-------------------------|---------------------|--------------|
+| **Outlier control** | No winsorization; heavy spenders distorted distances | **Winsorize 1st–99th percentile** per feature before log | KMeans/GMM chase mega-buyers; clipping stabilizes geometry without dropping customers |
+| **Transform** | log1p on F/M (RFM) / spends | Same, applied **after** winsorize | Order matters: log after clip reduces extreme leverage |
+| **Scaling** | `StandardScaler` (mean/std) | **`RobustScaler`** (median/IQR) | Retail residuals stay fat-tailed; IQR scale is less sensitive |
+| **Algorithm survey** | PyCaret menu (incl. density methods) | Explicit sklearn families: **KMeans++, MiniBatchKMeans, Ward, Birch, GMM** | Controlled APIs; GMM allows unequal variance; MiniBatch scales |
+| **k selection** | Elbow + Silhouette only | Sweep **k=2..8** + Silhouette + DB + CH | Multi-metric avoids “pretty” k that is operationally useless |
+| **Stability** | Not measured | **Bootstrap ARI** (70% subsample, 6 boots) | Prefers partitions that reappear on resamples |
+| **Selection objective** | Mostly highest Silhouette among viable models | Composite **`production_score`** (geometry + balance + stability + slight 3–5 segment preference) | Production cares about actionability and consistency, not Silhouette alone |
+| **Code structure** | Logic inlined in notebooks | Reusable **`segmentation/`** package | Same pipeline for all three datasets; easier to re-score new customers |
+| **RFM interpretability** | Profiles only | + classic **1–5 R/F/M quantile scores** (diagnostic) | Bridges CRM language and ML clusters |
+
+**How that produced better results (mechanism, not magic):**
+
+1. **Cleaner feature space** — winsorize + robust scale shrinks the pull of extreme Monetary tails so cluster centers sit on the bulk of customers.  
+2. **Stronger between/within separation (CH)** — with less outlier drag, Calinski–Harabasz rose on both retail notebooks (5793→6290; 4395→4917).  
+3. **Slightly higher Silhouette on retail** — NB1 0.419→0.427; NB3 0.416→0.426.  
+4. **Stability as a first-class metric** — preferred models now report ARI ≈ **0.97** (retail) so we know the cut is not a one-shot fluke.  
+5. **Wholesale tradeoff is honest** — Silhouette dipped slightly (0.258→0.252) while **CH rose** and **Channel purity improved** (Horeca cluster 95.8%→**97.1%**). `production_score` can prefer that; we still publish Silhouette so reviewers can disagree.
+
+---
+
+### Old vs new — headline comparison (same data, different pipeline)
+
+| Notebook | | Preferred model | Silhouette ↑ | Davies–Bouldin ↓ | Calinski–Harabasz ↑ | Stability ARI | Business highlight |
+|----------|--|-----------------|--------------|------------------|---------------------|---------------|--------------------|
+| **01 Retail II** | **v1 (old)** | KMeans k=2 | 0.419 | 0.889 | 5793 | — (not measured) | High-value 45.5% cust → **90.2%** revenue |
+| | **v2 (new)** | KMeans k=2 | **0.427** | **0.870** | **6290** | **0.968** | Champions 46.0% cust → **91.3%** revenue |
+| | **Δ** | same family/k | **+0.008** | **−0.019** (better) | **+497** | new metric | **+1.1 pp** revenue concentration |
+| **02 Wholesale** | **v1 (old)** | HClust k=2 | **0.258** | 1.600 | 135 | — | Horeca-dominated cluster **95.8%** Channel=1 |
+| | **v2 (new)** | MiniBatchKMeans k=2 | 0.252 | **1.553** | **149** | **0.756** | Horeca-dominated cluster **97.1%** Channel=1 |
+| | **Δ** | model family changed | −0.006 | **−0.047** (better) | **+14** | new metric | **+1.3 pp** Channel purity; Sil slightly lower |
+| **03 Retail 352** | **v1 (old)** | KMeans k=3 | 0.416 | 0.825 | 4395 | — | VIP 30.5% cust → **81.6%** revenue |
+| | **v2 (new)** | KMeans k=3 | **0.426** | **0.801** | **4917** | **0.974** | VIP 32.2% cust → **82.2%** revenue |
+| | **Δ** | same family/k | **+0.010** | **−0.024** (better) | **+522** | new metric | **+0.6 pp** VIP revenue share |
+
+---
+
+### v1 baseline results (preserved in full)
+
+These are the **original** fully-executed notebook outputs before the production package (log + `StandardScaler`, PyCaret survey, sklearn re-fit of best 2, no winsorize/stability/`production_score`).
+
+#### v1 — Notebook 1 Online Retail II
+
+| Item | Value |
+|------|--------|
+| Rows / customers | 1,067,371 raw → 805,549 clean → **5,878** RFM |
+| Preprocess | log1p(F,M) + StandardScaler |
+| Survey best 2 | kmeans, hclust |
+| Preferred | **KMeans k=2** — Sil **0.419**, DB 0.889, CH **5793** |
+| Runner-up | Hierarchical k=2 — Sil 0.399, DB 0.846, CH 5066 |
+
+| Segment | n | % cust | % revenue | Avg R | Avg F | Avg M |
+|---------|---|--------|-----------|-------|-------|-------|
+| High value / recent | 2,674 | 45.5% | **90.2%** | 62 d | 11.6 | £5,988 |
+| Low value / stale | 3,204 | 54.5% | 9.8% | 316 d | 1.9 | £541 |
+
+#### v1 — Notebook 2 Wholesale Customers
+
+| Item | Value |
+|------|--------|
+| Rows | **440** |
+| Preprocess | log1p(6 spends) + StandardScaler; Channel/Region held out |
+| Survey best 2 | birch, hclust |
+| Preferred | **HClust k=2** — Sil **0.258**, DB 1.600, CH **135** |
+| Runner-up | Birch k=2 — Sil 0.222, DB 1.645, CH 124 |
+
+| Segment | n | % accounts | % spend | Mean total | Top category |
+|---------|---|------------|---------|------------|--------------|
+| 0 | 178 | 40.5% | 49.0% | ~40,275 | Grocery ≈ 14,247 |
+| 1 | 262 | 59.5% | 51.0% | ~28,437 | Fresh ≈ 15,016 |
+
+Channel sanity (v1): Cluster 0 ≈ **73.6%** Channel=2 (Retail); Cluster 1 ≈ **95.8%** Channel=1 (Horeca).
+
+#### v1 — Notebook 3 Online Retail (352)
+
+| Item | Value |
+|------|--------|
+| Rows / customers | 541,909 raw → 397,884 clean → **4,338** RFM |
+| Preprocess | log1p(F,M) + StandardScaler |
+| Survey best 2 | kmeans, hclust |
+| Preferred | **KMeans k=3** — Sil **0.416**, DB 0.825, CH **4395** |
+| Runner-up | Hierarchical k=2 — Sil 0.400, DB 0.892, CH 3691 |
+
+| Segment | n | % cust | % revenue | Avg R | Avg F | Avg M |
+|---------|---|--------|-----------|-------|-------|-------|
+| VIP | 1,323 | 30.5% | **81.6%** | 29 d | 9.8 | £5,494 |
+| Mid | 2,036 | 46.9% | 14.1% | 54 d | 2.0 | £615 |
+| Lapsed / low | 979 | 22.6% | 4.4% | 254 d | 1.4 | £398 |
+
+---
+
+### v2 production results (current — full detail)
+
+Pipeline for all three: **winsorize → log1p → RobustScaler → family survey → k-sweep + bootstrap ARI → production_score → profiles**.
+
+#### v2 — Notebook 1 Online Retail II (current preferred)
+
+| Item | Value |
+|------|--------|
+| Same data grain | 1,067,371 → 805,549 → **5,878** customers |
 | Best families | **kmeans**, **minibatch_kmeans** |
 | Preferred | **KMeans k=2** |
 
@@ -202,48 +292,43 @@ Wholesale Silhouette is essentially flat (−0.006) while **Channel recovery and
 | **KMeans k=2** | **0.427** | **0.870** | **6290** | **0.968** | **0.662** |
 | MiniBatchKMeans k=2 | 0.427 | 0.872 | 6288 | 0.946 | 0.659 |
 
-| Segment | n | % cust | % revenue | R (d) | F | M mean | Label |
-|---------|---|--------|-----------|-------|---|--------|-------|
-| Champions | 2,705 | 46.0% | **91.3%** | 70 | 11.5 | **£5,990** | VIP protect |
-| At-risk / Lapsed | 3,173 | 54.0% | 8.7% | 311 | 1.8 | £486 | Win-back |
+| Segment | n | % cust | % revenue | R (d) | F | M mean (median) | Label |
+|---------|---|--------|-----------|-------|---|-----------------|-------|
+| Champions / Loyal high-value | 2,705 | 46.0% | **91.3%** | 70 | 11.5 | **£5,990** (£2,534) | VIP protect |
+| At-risk / Lapsed | 3,173 | 54.0% | 8.7% | 311 | 1.8 | £486 (£374) | Win-back |
 
----
+**vs v1 on this notebook:** better Sil/DB/CH; revenue concentration **90.2% → 91.3%**; stability now quantified (0.968).
 
-### Notebook 2 — Wholesale Customers (UCI 292)
+#### v2 — Notebook 2 Wholesale Customers (current preferred)
 
-| Stage | Real output |
-|-------|-------------|
-| Source | `ucimlrepo` id=292 original — **440×8** |
-| Deli column | **`Delicassen`** |
-| Preprocess | Winsorize → log1p(all 6 spends) → RobustScaler |
-| Preferred | **MiniBatchKMeans k=2** (Sil 0.252, CH 149, stab 0.756) |
+| Item | Value |
+|------|--------|
+| Preferred | **MiniBatchKMeans k=2** — Sil **0.252**, DB **1.553**, CH **149**, stab **0.756**, prod **0.223** |
+| Runner-up (family) | HClust k=4 — Sil 0.228, prod 0.222 |
 
 | Segment | n | % accounts | % spend | Mean total | Top category |
 |---------|---|------------|---------|------------|--------------|
 | 1 | 201 | 45.7% | **57.4%** | ~41,732 | Grocery ≈ 13,709 |
 | 0 | 239 | 54.3% | 42.6% | ~26,073 | Fresh ≈ 14,826 |
 
-**Channel sanity (descriptive only):** Cluster 0 → Channel 1 (Horeca) **97.1%**; Cluster 1 → Channel 2 (Retail) **67.2%**.
+Channel sanity (v2, descriptive only): Cluster 0 → Channel **1** (Horeca) **97.1%**; Cluster 1 → Channel **2** (Retail) **67.2%**.
 
----
+**vs v1 on this notebook:** Silhouette slightly lower; **CH and Channel purity higher**; model family switched (HClust → MiniBatchKMeans) because `production_score` + balance favored it.
 
-### Notebook 3 — Online Retail (UCI 352)
+#### v2 — Notebook 3 Online Retail 352 (current preferred)
 
-| Stage | Real output |
-|-------|-------------|
-| Raw / cleaned / customers | **541,909** / **397,884** / **4,338** |
-| Preferred | **KMeans k=3** |
+| Item | Value |
+|------|--------|
+| Preferred | **KMeans k=3** — Sil **0.426**, DB **0.801**, CH **4917**, stab **0.974**, prod **0.656** |
+| Runner-up | MiniBatchKMeans k=3 — Sil 0.426, stab 0.914, prod 0.649 |
 
-| Config | Silhouette | DB | CH | Stability ARI | production_score |
-|--------|------------|----|----|---------------|------------------|
-| **KMeans k=3** | **0.426** | **0.801** | **4917** | **0.974** | **0.656** |
-| MiniBatchKMeans k=3 | 0.426 | — | — | 0.914 | 0.649 |
+| Segment | n | % cust | % revenue | R (d) | F | M mean (median) |
+|---------|---|--------|-----------|-------|---|-----------------|
+| VIP | 1,397 | 32.2% | **82.2%** | 29 | 9.5 | **£5,245** (£2,479) |
+| Mid | 1,956 | 45.1% | 12.4% | 54 | 2.0 | £566 (£484) |
+| Lapsed / low | 985 | 22.7% | 5.4% | 254 | 1.4 | £485 (£298) |
 
-| Segment | n | % cust | % revenue | R (d) | F | M mean |
-|---------|---|--------|-----------|-------|---|--------|
-| VIP | 1,397 | 32.2% | **82.2%** | 29 | 9.5 | **£5,245** |
-| Mid | 1,956 | 45.1% | 12.4% | 54 | 2.0 | £566 |
-| Lapsed / low | 985 | 22.7% | 5.4% | 254 | 1.4 | £485 |
+**vs v1 on this notebook:** Sil/DB/CH all improved; VIP revenue share **81.6% → 82.2%**; stability ARI **0.974**.
 
 ---
 
