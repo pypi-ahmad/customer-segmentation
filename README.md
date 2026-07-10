@@ -249,14 +249,15 @@ Wholesale Silhouette is essentially flat (−0.006) while **Channel recovery and
 
 ## Honest limitations
 
-1. **Internal metrics ≠ business lift.** Silhouette can favor geometry that is not the most actionable marketing cut. Always read profiles and mass balance.
-2. **k often lands at 2.** That can be statistically preferred but operationally coarse. Notebooks report the metric-driven choice; stakeholders may still request k=3–5 for campaign design.
-3. **UCI 502 Python import is broken** in `ucimlrepo` (dataset exists but is not importable). The notebook uses the official UCI static zip for the **same dataset id**.
-4. **PyCaret 4.0.0a8 is alpha.** Chosen because PyCaret 3.3.x hard-fails on Python ≥ 3.12. Pin and re-verify after upgrades.
-5. **Density methods** can report high Silhouette on non-noise points while labeling most of the base as noise. Hard filters drop those from best-2 contention.
-6. **No causal claims.** Segment actions in the manager briefs are hypotheses for A/B testing, not proven treatments.
-7. **MIT does not cover data.** UCI datasets remain under their original licenses (typically CC BY 4.0).
-8. **Distribution shift.** Segments from 2009–2011 UK gift retail will not automatically transfer to another vertical or year.
+1. **Internal metrics ≠ business lift.** Silhouette / production_score optimize geometry and stability, not campaign ROI. Validate with A/B tests.
+2. **production_score is a design choice.** Weights (stability, 3–5 segment preference, imbalance penalties) are documented in `segmentation/metrics.py` and can be tuned.
+3. **Wholesale Silhouette can trade off against Channel purity.** This run slightly lowered Silhouette while improving CH and Channel recovery — reported honestly.
+4. **UCI 502 Python import is broken** in `ucimlrepo`; notebooks use the official UCI static zip for the same dataset id.
+5. **Bootstrap ARI** measures self-consistency on subsamples, not future-period stability. Re-fit on a rolling window in production.
+6. **Winsor bounds and scaler** are part of the scoring artifact — must be persisted for inference on new customers.
+7. **No causal claims.** Manager actions are hypotheses.
+8. **MIT covers code only**; UCI data stays under original terms.
+9. **Distribution shift** across years/verticals is expected — do not ship 2011 UK segments unchanged into a new market.
 
 ---
 
