@@ -1,0 +1,78 @@
+name: Bug report
+description: Something broken in setup, data load, notebooks, or metrics
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Include enough detail to reproduce on a clean `uv sync` environment.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong in one or two sentences?
+      placeholder: e.g. Notebook 01 fails when loading Online Retail II…
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands or notebook cells
+      placeholder: |
+        1. uv sync
+        2. uv run jupyter nbconvert --execute notebooks/01_...
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Paste the full error traceback if available
+    validations:
+      required: true
+  - type: dropdown
+    id: notebook
+    attributes:
+      label: Related notebook / area
+      options:
+        - "01 Online Retail II"
+        - "02 Wholesale Customers"
+        - "03 Online Retail"
+        - Environment / uv / kernel
+        - README / docs
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: e.g. Ubuntu 24.04
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: Output of `uv run python -V`
+      placeholder: e.g. Python 3.13.13
+  - type: input
+    id: pycaret
+    attributes:
+      label: PyCaret / sklearn versions (if known)
+      placeholder: e.g. pycaret 4.0.0a8, sklearn 1.9.0
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I ran `uv sync` on this branch
+        - label: I used kernel `customer-segmentation-project` (if running notebooks)
+        - label: This is unsupervised clustering — I am not reporting missing accuracy/F1 as a bug

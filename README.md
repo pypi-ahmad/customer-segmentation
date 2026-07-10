@@ -10,6 +10,8 @@
 
 **License:** MIT for code and notebooks ([LICENSE](LICENSE)). Datasets remain under UCI / CC BY 4.0 terms — not re-licensed by this repo.
 
+**Community:** [Contributing](CONTRIBUTING.md) · [Code of Conduct](CODE_OF_CONDUCT.md) · [Open an issue](https://github.com/pypi-ahmad/customer-segmentation/issues/new/choose)
+
 ---
 
 ## Why this exists

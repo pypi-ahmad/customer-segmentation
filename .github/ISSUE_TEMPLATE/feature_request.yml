@@ -1,0 +1,50 @@
+name: Feature request
+description: Suggest an enhancement to notebooks, docs, or workflow
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the improvement and why it helps learners, operators, or reviewers.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What gap does this fill?
+      placeholder: e.g. Hard to export segment assignments for marketing tools…
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like added or changed?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you thought about (optional)
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Notebooks / modeling
+        - Data loading
+        - Documentation
+        - Tooling / CLI / CI
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Project constraints (acknowledge)
+      options:
+        - label: I understand this project is unsupervised (no accuracy/confusion-matrix “success” metrics)
+          required: true
+        - label: I am not proposing to commit large raw UCI zip/xlsx files into git
+          required: true
