@@ -21,3 +21,6 @@ data/*.xlsx
 data/*.xls
 logs.log
 **/logs.log
+
+# generated scoring demos (optional commit of small samples)
+

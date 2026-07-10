@@ -4,9 +4,9 @@
 
 | Audience | Start here |
 |----------|------------|
-| **Portfolio / technical reviewers** | [Architecture & design decisions](#architecture--design-decisions) → [Real evidence](#real-evidence-from-executed-notebooks) → [Limitations](#honest-limitations) |
+| **Portfolio / technical reviewers** | [Architecture & design decisions](#architecture--design-decisions) → [Real evidence](#real-evidence-from-executed-notebooks) → [Advanced track 04–06](#advanced-track-notebooks-0406--kept-separate-from-0103) → [Limitations](#honest-limitations) |
 | **Hands-on users** | [Quick start](#quick-start) → [Operate the notebooks](#operate-the-notebooks) → [Troubleshooting](#troubleshooting) → [Extend the project](#extend-the-project) |
-| **Tutorial learners** | [What this project teaches](#what-this-project-teaches) → [Concepts](#concepts-unsupervised-segmentation) → [Implementation flow](#implementation-flow-step-by-step) → notebooks in order |
+| **Tutorial learners** | [What this project teaches](#what-this-project-teaches) → [Concepts](#concepts-unsupervised-segmentation) → **[Advanced tutorial](docs/ADVANCED_SEGMENTATION_TUTORIAL.md)** → notebooks **01→03** then **04→06** |
 
 **License:** MIT for code and notebooks ([LICENSE](LICENSE)). Datasets remain under UCI / CC BY 4.0 terms — not re-licensed by this repo.
 
@@ -57,19 +57,23 @@ Customer Segmentation/
 ├── pyproject.toml          # uv project + dependencies
 ├── uv.lock
 ├── .python-version         # 3.13.13
+├── docs/
+│   └── ADVANCED_SEGMENTATION_TUTORIAL.md   # why/how advanced upgrades work
 ├── segmentation/           # production helper package
-│   ├── preprocess.py       # clean, RFM, winsorize, log, RobustScaler
-│   ├── metrics.py          # Silhouette/DB/CH, production_score, stability ARI
-│   └── selection.py        # survey, k-sweep, fit_model (incl. GMM)
+│   ├── preprocess.py / metrics.py / selection.py   # used by 01–03 (+ shared utils)
+│   └── advanced/           # NEW — does not replace baseline modules
+│       ├── features_plus.py, whales.py, temporal.py
+│       ├── hybrid.py, soft_hierarchical.py, scoring.py, stability_time.py
+├── artifacts/              # scoring sample + A/B design CSVs (from notebook 06)
 ├── data/                   # local UCI cache (large; gitignored)
 └── notebooks/
-    ├── 01_online_retail_ii_segmentation.{py,ipynb}
-    ├── 02_wholesale_customers_segmentation.{py,ipynb}
-    └── 03_online_retail_segmentation.{py,ipynb}
+    ├── 01–03_*             # BASELINE track (unchanged learning path)
+    └── 04–06_advanced_*    # ADVANCED track (new code + executed outputs)
 ```
 
-- **`segmentation/`** is the reusable production core imported by notebooks.
-- **`.py`** files are [jupytext](https://jupytext.readthedocs.io/) sources; **`.ipynb`** are fully executed.
+- **01–03 stay the teaching baseline** (results preserved in this README).  
+- **04–06 are additive** advanced notebooks with full explanations.  
+- **`.py`** = jupytext sources; **`.ipynb`** = executed deliverables.
 
 ---
 
@@ -332,6 +336,72 @@ Channel sanity (v2, descriptive only): Cluster 0 → Channel **1** (Horeca) **97
 
 ---
 
+## Advanced track (notebooks 04–06) — kept separate from 01–03
+
+Older notebooks **were not edited**. Advanced work lives in new modules + new notebooks so learners can still run the classic path first.
+
+Full conceptual guide: **[docs/ADVANCED_SEGMENTATION_TUTORIAL.md](docs/ADVANCED_SEGMENTATION_TUTORIAL.md)**.
+
+### What we added (and why)
+
+| Upgrade | Where | Why it makes results “more awesome” |
+|---------|--------|-------------------------------------|
+| **RFM+ features** (tenure, AOV, inter-purchase, cancel rate, 90d trends) | 04 + `features_plus.py` | Same R/F/M can hide opposite trajectories; extra axes separate real behaviors |
+| **Whale split** (top 1% Monetary) | 04 + `whales.py` | Key accounts get a policy segment; they stop owning every centroid |
+| **Time holdout** (features ≤ cutoff; outcomes next 90d) | 05 + `temporal.py` | Silhouette ≠ revenue; future £ / retention is the commercial test |
+| **Hybrid CLV / retention proxies** | 05 + `hybrid.py` | Rank *inside* clusters for targeting without fake segment accuracy |
+| **Soft GMM membership** | 06 + `soft_hierarchical.py` | Confidence / partial VIP membership for ops |
+| **Hierarchical VIP → core** | 06 | Budget like a real CRM org (protect top 15%, sub-segment the rest) |
+| **Rolling as-of stability** | 06 + `stability_time.py` | Detect segment drift across months |
+| **Scoring API + playbooks + A/B design** | 06 + `scoring.py` | Deployable loop: features → segment → action → metric |
+
+### Real outputs from advanced notebooks (executed)
+
+#### Notebook 04 — RFM+ vs baseline RFM on **core** (whales held out)
+
+| Pipeline | k | Silhouette | CH | Notes |
+|----------|---|------------|-----|--------|
+| Baseline RFM (3 features) | 2 | 0.428 | 6288 | Same spirit as NB01 geometry |
+| **RFM+ (15 features)** | 2 | **0.507** | 1713 | **+0.08 Silhouette** vs 3-feature baseline on core |
+| Whales (rule) | — | — | — | **n=59 (1%)**, **31.9%** of lifetime Monetary, threshold £29,730 |
+
+**Why Silhouette jumped:** richer, winsorized/scaled RFM+ geometry on the non-whale base forms tighter relative groups than 3D RFM alone.
+
+#### Notebook 05 — future 90-day holdout (no leakage)
+
+| Pipeline (history only) | Silhouette @ cutoff | Future £ max/min ratio | Top segment share of future £ | Retention gap |
+|-------------------------|---------------------|------------------------|-------------------------------|---------------|
+| Baseline RFM | 0.411 | **7.89** | **86.5%** | 0.378 |
+| RFM+ | **0.449** | 3.90 | 34.2% | 0.363 |
+
+**Honest reading:** RFM+ won **in-sample geometry** at the cutoff, while classic RFM’s coarse k=2 cut still concentrated **future** revenue more extremely in this window. That is why we measure **both** — awesome production systems optimize for **future lift**, not only Silhouette.
+
+**Supervised proxies (holdout):** future-monetary **R² ≈ 0.39**, retention **AUC ≈ 0.82** — strong enough to build hybrid `cluster|value_band` cells. Hybrid **retention gap ≈ 0.65** (wider than pure clusters).
+
+#### Notebook 06 — soft / hierarchy / stability / scoring
+
+| Piece | Real output |
+|-------|-------------|
+| Soft GMM | 4 components; confidence histogram in notebook |
+| Hierarchy | **VIP n=873 (~15%)**, rest **4,946** split into 3 cores |
+| Rolling stability | Mean consecutive ARI ≈ **0.20** (segments **do** drift — monitoring is required) |
+| Artifacts | `artifacts/sample_scores.csv`, `artifacts/ab_experiment_design.csv` |
+
+### How to run advanced only
+
+```bash
+for n in 04_advanced_rfm_plus_whales_representation \
+         05_advanced_temporal_holdout_hybrid_clv \
+         06_advanced_soft_hierarchical_scoring_playbooks; do
+  uv run jupytext --to ipynb "notebooks/${n}.py"
+  uv run jupyter nbconvert --to notebook --execute "notebooks/${n}.ipynb" \
+    --output "${n}.ipynb" --ExecutePreprocessor.timeout=7200 \
+    --ExecutePreprocessor.kernel_name=customer-segmentation-project
+done
+```
+
+---
+
 ## Honest limitations
 
 1. **Internal metrics ≠ business lift.** Silhouette / production_score optimize geometry and stability, not campaign ROI. Validate with A/B tests.
@@ -343,6 +413,8 @@ Channel sanity (v2, descriptive only): Cluster 0 → Channel **1** (Horeca) **97
 7. **No causal claims.** Manager actions are hypotheses.
 8. **MIT covers code only**; UCI data stays under original terms.
 9. **Distribution shift** across years/verticals is expected — do not ship 2011 UK segments unchanged into a new market.
+10. **Advanced RFM+ can raise Silhouette while classic RFM wins a particular future-window concentration** (see notebook 05). Always report both geometry and future metrics.
+11. **Rolling ARI ~0.2** on this dataset shows labels are not permanent — production needs re-fit + name matching, not a one-time cluster id.
 
 ---
 

@@ -1,0 +1,6 @@
+segment,hypothesis,channel,budget_priority,primary_metric,offer_hint,design
+VIP,"If we apply 'Protect with high-touch retention' to VIP, then Retention rate, repeat AOV improves vs holdout.",Account manager + email,high,"Retention rate, repeat AOV",Early access / non-discount perks first,50/50 random split within segment; 4-week window; guardrail: margin
+Growth,"If we apply 'Raise frequency and category breadth' to Growth, then Orders next 90d, AOV improves vs holdout.",Email / CRM automation,medium,"Orders next 90d, AOV","Bundles, loyalty stamps",50/50 random split within segment; 4-week window; guardrail: margin
+AtRisk,"If we apply 'Win-back sequence' to AtRisk, then Reactivation rate improves vs holdout.",Email + SMS,medium,Reactivation rate,Modest time-boxed incentive,50/50 random split within segment; 4-week window; guardrail: margin
+LowValue,"If we apply 'Low-cost lifecycle only' to LowValue, then Cost per activated order improves vs holdout.",Email automation,low,Cost per activated order,Avoid deep discounts,50/50 random split within segment; 4-week window; guardrail: margin
+Whale,"If we apply 'Dedicated key-account management' to Whale, then Account retention, NPS improves vs holdout.",Human AM,high,"Account retention, NPS","Service SLAs, not coupons",50/50 random split within segment; 4-week window; guardrail: margin
