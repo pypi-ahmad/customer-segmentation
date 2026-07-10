@@ -25,15 +25,22 @@ Most retail data has **no labeled “segment” column**. You cannot train a cla
 3. Judge quality with **internal** cluster metrics and **business-readable** profiles.
 4. Act on segments (VIP retention, reactivation, automation tiers).
 
-This repository implements that loop **three times** on real UCI data so you can compare:
+This repository implements that loop on real UCI data in **two tracks** (baseline kept for learning; advanced is additive):
 
-| Notebook | Dataset | Nature | Feature design |
-|----------|---------|--------|----------------|
-| `notebooks/01_online_retail_ii_segmentation.ipynb` | [Online Retail II (UCI 502)](https://archive.ics.uci.edu/dataset/502/online+retail+ii) | ~1.07M transactions, Dec 2009–Dec 2011 | Engineered RFM per customer |
-| `notebooks/02_wholesale_customers_segmentation.ipynb` | [Wholesale Customers (UCI 292)](https://archive.ics.uci.edu/dataset/292/wholesale+customers) | 440 customer-level rows | Log annual spend across 6 categories |
-| `notebooks/03_online_retail_segmentation.ipynb` | [Online Retail (UCI 352)](https://archive.ics.uci.edu/dataset/352/online+retail) | ~542k transactions, Dec 2010–Dec 2011 | Engineered RFM (different column names than II) |
+| Track | Notebooks | Feature design |
+|-------|-----------|----------------|
+| **Baseline (keep)** | [01](notebooks/01_online_retail_ii_segmentation.ipynb) Online Retail II · [02](notebooks/02_wholesale_customers_segmentation.ipynb) Wholesale · [03](notebooks/03_online_retail_segmentation.ipynb) Online Retail | Classic RFM or 6 spends; v1→v2 production polish |
+| **Advanced (new)** | [04](notebooks/04_advanced_rfm_plus_whales_representation.ipynb) RFM+ / whales · [05](notebooks/05_advanced_temporal_holdout_hybrid_clv.ipynb) future holdout / hybrid · [06](notebooks/06_advanced_soft_hierarchical_scoring_playbooks.ipynb) soft/hier/scoring | RFM+, whales, time holdout, CLV proxy, soft/hier, API |
 
-Each notebook is **tutorial-style** (markdown teaches *why* before *how*) and **fully executed** (real numbers, plots, and segment profiles in the saved `.ipynb`).
+Each notebook is **tutorial-style** (markdown teaches *why* before *how*) and **fully executed** (real numbers and plots in the saved `.ipynb`). Older results are **not deleted** — see comparisons below.
+
+### Three generations of results (how to read the numbers)
+
+| Generation | Where documented | What it is |
+|------------|------------------|------------|
+| **v1 baseline** | [v1 tables](#v1-baseline-results-preserved-in-full) | First full run: log + StandardScaler, PyCaret survey, sklearn best-2 |
+| **v2 production** | [v2 tables](#v2-production-results-current--full-detail) + [old vs new](#old-vs-new--headline-comparison-same-data-different-pipeline) | Same notebooks 01–03 upgraded: winsorize, RobustScaler, GMM family, stability ARI, `production_score` |
+| **v3 advanced** | [Advanced track](#advanced-track-notebooks-0406--kept-separate-from-0103) | **New** notebooks 04–06 only — RFM+, whales, future £/retention, hybrid, soft/hier, scorer |
 
 ---
 
